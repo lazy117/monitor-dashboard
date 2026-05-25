@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>多云资源监控大屏</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #091b35; color: #dce3ed; font-family: 'Microsoft YaHei', sans-serif; padding: 18px 28px; min-height: 100vh; }
+        .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; border-bottom: 1px solid #1b3552; padding-bottom: 14px; }
+        .topbar h1 { font-size: 1.9rem; background: linear-gradient(90deg, #5cb8ff, #00e5f0); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .live-clock { font-size: 1.1rem; color: #aabdd4; font-family: 'Courier New', monospace; }
+        .gear-btn { background: #1b3552; color: #aabdd4; border: 1px solid #5cb8ff; padding: 7px 18px; border-radius: 6px; cursor: pointer; }
+        .gear-btn:hover { background: #5cb8ff; color: #fff; }
+        .drawer { display: none; background: rgba(12,28,50,0.96); border: 1px solid #5cb8ff; border-radius: 12px; padding: 18px; margin-bottom: 18px; color: #aabdd4; }
+        .drawer.on { display: block; }
+        .drawer h3 { margin-bottom: 14px; color: #5cb8ff; }
+        .drawer-row { display: flex; gap: 18px; flex-wrap: wrap; margin-bottom: 14px; }
+        .drawer-item { display: flex; flex-direction: column; gap: 4px; }
+        .drawer-item label { font-size: 0.82rem; color: #7e92ab; }
+        .drawer-item input { background: #091b35; border: 1px solid #1b3552; color: #dce3ed; padding: 7px 10px; border-radius: 6px; width: 110px; }
+        .drawer-btns { display: flex; gap: 10px; }
+        .drawer-btns button { background: #5cb8ff; color: #091b35; border: none; padding: 7px 18px; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        .drawer-btns button.ghost { background: #1b3552; color: #aabdd4; }
+        .kpi-row { display: grid; grid-template-columns: repeat(4,1fr); gap: 18px; margin-bottom: 22px; }
+        .kpi-card { background: rgba(14,30,52,0.82); border: 1px solid #1b3552; border-radius: 12px; padding: 18px; text-align: center; }
+        .kpi-card:hover { transform: translateY(-3px); border-color: #5cb8ff; }
+        .kpi-label { font-size: 0.88rem; color: #7e92ab; margin-bottom: 8px; }
+        .kpi-num { font-size: 2.3rem; font-weight: bold; color: #5cb8ff; }
+        .kpi-unit { font-size: 0.88rem; color: #7e92ab; margin-left: 4px; }
+        .plot-area { display: grid; grid-template-columns: repeat(3,1fr); gap: 18px; margin-bottom: 22px; }
+        .plot-box { background: rgba(14,30,52,0.82); border: 1px solid #1b3552; border-radius: 12px; padding: 14px; }
+        .plot-title { font-size: 0.95rem; color: #aabdd4; margin-bottom: 8px; padding-left: 5px; border-left: 3px solid #5cb8ff; }
+        .plot { width: 100%; height: 270px; }
+        .foot-row { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 18px; }
+        .table-wrap, .alert-wrap { background: rgba(14,30,52,0.82); border: 1px solid #1b3552; border-radius: 12px; padding: 14px; }
+        .sec-title { font-size: 0.95rem; color: #aabdd4; margin-bottom: 14px; padding-left: 5px; border-left: 3px solid #5cb8ff; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+        th { text-align: left; padding: 9px 7px; border-bottom: 1px solid #1b3552; color: #7e92ab; }
+        td { padding: 9px 7px; border-bottom: 1px solid #0e1e30; }
+        .tag-up { color: #00e676; font-weight: bold; }
+        .tag-warn { color: #ffab00; }
+        .event-list { max-height: 310px; overflow-y: auto; }
+        .event-row { padding: 9px; margin-bottom: 7px; border-radius: 6px; font-size: 0.82rem; display: flex; align-items: center; gap: 7px; }
+        .event-warn { background: rgba(255,171,0,0.15); border-left: 3px solid #ffab00; color: #ffab00; }
+        .event-crit { background: rgba(255,82,82,0.15); border-left: 3px solid #ff5252; color: #ff5252; }
+        .event-info { background: rgba(92,184,255,0.15); border-left: 3px solid #5cb8ff; color: #5cb8ff; }
+        .footnote { text-align: center; margin-top: 22px; color: #405b7a; font-size: 0.72rem; border-top: 1px solid #1b3552; padding-top: 14px; }
+        @media (max-width: 1400px) { .plot-area { grid-template-columns: 1fr 1fr; } .foot-row { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+<header class="topbar">
+    <h1>多云资源监控大屏</h1>
+    <div style="display:flex;align-items:center;gap:28px;">
+        <span class="live-clock" id="liveClock">--</span>
+        <button class="gear-btn" id="openDrawerBtn">⚙ 参数设置</button>
+    </div>
+</header>
+
+<div class="drawer" id="paramDrawer">
+    <h3>模拟参数配置（自动保存）</h3>
+    <div class="drawer-row">
+        <div class="drawer-item"><label>云主机总数</label><input type="number" id="vmCount" value="12" min="1"></div>
+        <div class="drawer-item"><label>在线率 (%)</label><input type="number" id="uptimePct" value="99.8" step="0.1" min="0" max="100"></div>
+        <div class="drawer-item"><label>初始告警条数</label><input type="number" id="warnCnt" value="3" min="0"></div>
+        <div class="drawer-item"><label>当日流量 (GB)</label><input type="number" id="flowGB" value="2.4" step="0.1" min="0"></div>
+        <div class="drawer-item"><label>CPU波动幅度</label><input type="number" id="cpuJitter" value="15" min="5" max="30"></div>
+    </div>
+    <div class="drawer-btns">
+        <button id="applyParamBtn">✅ 应用并保存</button>
+        <button id="resetParamBtn">🔄 恢复默认</button>
+        <button class="ghost" id="closeDrawerBtn">关闭面板</button>
+    </div>
+</div>
+
+<div class="kpi-row">
+    <div class="kpi-card"><div class="kpi-label">云主机总数</div><div class="kpi-num" id="vmNum">0</div><div class="kpi-unit">台</div></div>
+    <div class="kpi-card"><div class="kpi-label">在线率</div><div class="kpi-num" id="uptimePercent">0</div><div class="kpi-unit">%</div></div>
+    <div class="kpi-card"><div class="kpi-label">当前告警</div><div class="kpi-num" id="warnNumber">0</div><div class="kpi-unit">条</div></div>
+    <div class="kpi-card"><div class="kpi-label">当日流量</div><div class="kpi-num" id="flowData">0</div><div class="kpi-unit">GB</div></div>
+</div>
+
+<div class="plot-area">
+    <div class="plot-box"><div class="plot-title">CPU 使用率走势</div><div id="cpuPlot" class="plot"></div></div>
+    <div class="plot-box"><div class="plot-title">内存占用对比</div><div id="memPlot" class="plot"></div></div>
+    <div class="plot-box"><div class="plot-title">磁盘读写速率</div><div id="ioPlot" class="plot"></div></div>
+</div>
+
+<div class="foot-row">
+    <div class="table-wrap">
+        <div class="sec-title">云资源实例清单</div>
+        <table><thead><tr><th>实例ID</th><th>所属云</th><th>状态</th><th>IP地址</th><th>运行时长</th></tr></thead><tbody id="vmTbody"></tbody></table>
+    </div>
+    <div class="alert-wrap">
+        <div class="sec-title">告警事件</div>
+        <div class="event-list" id="eventContainer"></div>
+    </div>
+</div>
+<footer class="footnote">* 原型演示系统 | 配置自动保存至浏览器 | 已预留云API适配层</footer>
+
+<script>
+    // ===================== 存储 =====================
+    const STORAGE_KEY = 'cloud_dashboard_config_v2';
+
+    function saveConfig(cfg) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
+        console.log('✅ 配置已保存:', cfg);
+    }
+
+    function loadConfig() {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+            try { return JSON.parse(raw); } catch (e) {}
+        }
+        return null;
+    }
+
+    function clearConfig() {
+        localStorage.removeItem(STORAGE_KEY);
+    }
+
+    // ===================== 全局状态 =====================
+    let cloudState = {
+        overview: { vmCount: 12, uptimePct: 99.8, warnCnt: 3, flowGB: 2.4 },
+        cpuSeries: [],
+        memSnapshot: [],
+        ioSeries: [],
+        vmList: [],
+        eventLog: []
+    };
+
+    function rng(min, max) {
+        return Math.floor(Math.random() * (max - min + 1)) + min;
+    }
+
+    // 初始化数据（不重置已保存的overview）
+    function initData(preserveOverview = false) {
+        const now = new Date();
+        cloudState.cpuSeries = [];
+        cloudState.ioSeries = [];
+        for (let i = 5; i >= 0; i--) {
+            let t = new Date(now - i * 60000);
+            let stamp = t.getHours().toString().padStart(2,'0') + ':' + t.getMinutes().toString().padStart(2,'0');
+            cloudState.cpuSeries.push({ stamp, providerA: rng(38,62), providerB: rng(44,66), providerC: rng(33,57) });
+            cloudState.ioSeries.push({ stamp, readMB: rng(95,185), writeMB: rng(55,135) });
+        }
+        cloudState.memSnapshot = [
+            { vendor: '阿里云', pct: rng(58,78) },
+            { vendor: '腾讯云', pct: rng(48,68) },
+            { vendor: '华为云', pct: rng(62,82) }
+        ];
+        cloudState.vmList = [
+            { id: 'vm-7b2e1a3d', vendor: '阿里云', status: '运行中', ip: '172.16.3.2', uptime: '15天' },
+            { id: 'vm-4c5f6d8e', vendor: '腾讯云', status: '运行中', ip: '172.16.7.5', uptime: '22天' },
+            { id: 'vm-8g9h0i1j', vendor: '华为云', status: '运行中', ip: '172.16.5.8', uptime: '8天' },
+            { id: 'vm-2k3l4m5n', vendor: '阿里云', status: '警告', ip: '172.16.3.9', uptime: '30天' },
+            { id: 'vm-6o7p8q9r', vendor: '腾讯云', status: '运行中', ip: '172.16.7.11', uptime: '5天' },
+            { id: 'vm-0s1t2u3v', vendor: '华为云', status: '已停止', ip: '172.16.5.15', uptime: '-' }
+        ];
+        cloudState.eventLog = [
+            { stamp: '14:28', level: 'warn', text: '腾讯云 vm-4c5f CPU使用率超过80%' },
+            { stamp: '14:15', level: 'crit', text: '阿里云 vm-7b2e 磁盘空间不足10%' },
+            { stamp: '14:10', level: 'info', text: '华为云 vm-8g9h 完成自动快照' }
+        ];
+
+        // 如果之前有保存的overview，就用保存的，否则用默认
+        if (!preserveOverview) {
+            cloudState.overview = { vmCount: 12, uptimePct: 99.8, warnCnt: 3, flowGB: 2.4 };
+        }
+        // 保证告警数量与 overview.warnCnt 一致
+        syncAlertCount();
+        // 同步到输入框
+        document.getElementById('vmCount').value = cloudState.overview.vmCount;
+        document.getElementById('uptimePct').value = cloudState.overview.uptimePct;
+        document.getElementById('warnCnt').value = cloudState.overview.warnCnt;
+        document.getElementById('flowGB').value = cloudState.overview.flowGB;
+    }
+
+    function syncAlertCount() {
+        const target = cloudState.overview.warnCnt;
+        // 补齐或截断
+        while (cloudState.eventLog.length < target) {
+            // 静默生成事件，不刷新UI
+            generateEvent(true);
+        }
+        while (cloudState.eventLog.length > target && cloudState.eventLog.length > 0) {
+            cloudState.eventLog.pop();
+        }
+        cloudState.overview.warnCnt = cloudState.eventLog.length;
+    }
+
+    function generateEvent(silent = false) {
+        const levels = ['warn', 'crit', 'info'];
+        const level = levels[Math.floor(Math.random() * levels.length)];
+        const vendors = ['阿里云', '腾讯云', '华为云'];
+        const vendor = vendors[Math.floor(Math.random() * vendors.length)];
+        const ids = ['vm-7b2e', 'vm-4c5f', 'vm-8g9h', 'vm-2k3l', 'vm-6o7p', 'vm-0s1t'];
+        const id = ids[Math.floor(Math.random() * ids.length)];
+        const msgs = {
+            warn: `${vendor} ${id} CPU使用率超过85%`,
+            crit: `${vendor} ${id} 内存不足触发扩容`,
+            info: `${vendor} ${id} 健康检查通过`
+        };
+        const now = new Date();
+        const stamp = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+        cloudState.eventLog.unshift({ stamp, level, text: msgs[level] });
+        if (cloudState.eventLog.length > 10) cloudState.eventLog.pop();
+        cloudState.overview.warnCnt = cloudState.eventLog.length;
+        if (!silent) {
+            renderEvents();
+            refreshKPIs();
+        }
+    }
+
+    // ===================== 数字跳动 =====================
+    function countUp(el, from, to, ms) {
+        let gap = to - from;
+        let val = from;
+        let step = gap / (ms / 20);
+        let timer = setInterval(() => {
+            val += step;
+            if ((step > 0 && val >= to) || (step < 0 && val <= to)) {
+                el.textContent = to.toFixed(1);
+                clearInterval(timer);
+                return;
+            }
+            el.textContent = val.toFixed(1);
+        }, 20);
+    }
+
+    function refreshKPIs() {
+        const s = cloudState.overview;
+        countUp(document.getElementById('vmNum'), 0, s.vmCount, 600);
+        countUp(document.getElementById('uptimePercent'), 0, s.uptimePct, 800);
+        countUp(document.getElementById('warnNumber'), 0, s.warnCnt, 600);
+        countUp(document.getElementById('flowData'), 0, s.flowGB, 600);
+    }
+
+    function renderVMs() {
+        document.getElementById('vmTbody').innerHTML = cloudState.vmList.map(v => `
+            <tr>
+                <td>${v.id}</td><td>${v.vendor}</td>
+                <td><span class="${v.status==='运行中'?'tag-up':v.status==='警告'?'tag-warn':''}">${v.status}</span></td>
+                <td>${v.ip}</td><td>${v.uptime}</td>
+            </tr>`).join('');
+    }
+
+    function renderEvents() {
+        document.getElementById('eventContainer').innerHTML = cloudState.eventLog.map(e => `
+            <div class="event-row event-${e.level==='crit'?'crit':e.level==='warn'?'warn':'info'}">
+                <span class="alert-time">${e.stamp}</span> ${e.text}
+            </div>`).join('');
+    }
+
+    function updateClock() {
+        document.getElementById('liveClock').textContent = new Date().toLocaleString('zh-CN');
+    }
+
+    // ===================== 图表 =====================
+    let chartCPU, chartMem, chartIO;
+
+    function initCharts() {
+        chartCPU = echarts.init(document.getElementById('cpuPlot'));
+        chartMem = echarts.init(document.getElementById('memPlot'));
+        chartIO = echarts.init(document.getElementById('ioPlot'));
+        drawCharts();
+    }
+
+    function drawCharts() {
+        chartCPU.setOption({
+            tooltip: { trigger: 'axis' },
+            legend: { data: ['阿里云', '腾讯云', '华为云'], textStyle: { color: '#aabdd4' } },
+            xAxis: { type: 'category', data: cloudState.cpuSeries.map(d => d.stamp), axisLabel: { color: '#7e92ab' } },
+            yAxis: { type: 'value', name: '%', axisLabel: { color: '#7e92ab' }, splitLine: { lineStyle: { color: '#1b3552' } } },
+            series: [
+                { name: '阿里云', type: 'line', data: cloudState.cpuSeries.map(d => d.providerA), smooth: true, color: '#5cb8ff' },
+                { name: '腾讯云', type: 'line', data: cloudState.cpuSeries.map(d => d.providerB), smooth: true, color: '#00e5f0' },
+                { name: '华为云', type: 'line', data: cloudState.cpuSeries.map(d => d.providerC), smooth: true, color: '#f5a3ff' }
+            ]
+        });
+        chartMem.setOption({
+            tooltip: { trigger: 'axis' },
+            xAxis: { type: 'category', data: cloudState.memSnapshot.map(d => d.vendor), axisLabel: { color: '#7e92ab' } },
+            yAxis: { type: 'value', name: '%', axisLabel: { color: '#7e92ab' }, splitLine: { lineStyle: { color: '#1b3552' } } },
+            series: [{
+                name: '内存占用', type: 'bar', data: cloudState.memSnapshot.map(d => d.pct),
+                itemStyle: { color: new echarts.graphic.LinearGradient(0,0,0,1, [{ offset: 0, color: '#5cb8ff' }, { offset: 1, color: '#0044cc' }]) }
+            }]
+        });
+        chartIO.setOption({
+            tooltip: { trigger: 'axis' },
+            legend: { data: ['读取', '写入'], textStyle: { color: '#aabdd4' } },
+            xAxis: { type: 'category', data: cloudState.ioSeries.map(d => d.stamp), axisLabel: { color: '#7e92ab' } },
+            yAxis: { type: 'value', name: 'MB/s', axisLabel: { color: '#7e92ab' }, splitLine: { lineStyle: { color: '#1b3552' } } },
+            series: [
+                { name: '读取', type: 'line', data: cloudState.ioSeries.map(d => d.readMB), smooth: true, color: '#f5a3ff', areaStyle: { opacity: 0.1 } },
+                { name: '写入', type: 'line', data: cloudState.ioSeries.map(d => d.writeMB), smooth: true, color: '#5cb8ff', areaStyle: { opacity: 0.1 } }
+            ]
+        });
+    }
+
+    function tickData() {
+        let lastCPU = cloudState.cpuSeries[cloudState.cpuSeries.length - 1];
+        let now = new Date();
+        let stamp = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+        let jitter = parseInt(document.getElementById('cpuJitter')?.value || 15);
+        cloudState.cpuSeries.push({
+            stamp,
+            providerA: Math.max(0, lastCPU.providerA + rng(-jitter, jitter)),
+            providerB: Math.max(0, lastCPU.providerB + rng(-jitter, jitter)),
+            providerC: Math.max(0, lastCPU.providerC + rng(-jitter, jitter))
+        });
+        if (cloudState.cpuSeries.length > 12) cloudState.cpuSeries.shift();
+        cloudState.memSnapshot.forEach(d => d.pct = rng(50,82));
+        let lastIO = cloudState.ioSeries[cloudState.ioSeries.length - 1];
+        cloudState.ioSeries.push({
+            stamp,
+            readMB: Math.max(0, lastIO.readMB + rng(-30,30)),
+            writeMB: Math.max(0, lastIO.writeMB + rng(-20,20))
+        });
+        if (cloudState.ioSeries.length > 12) cloudState.ioSeries.shift();
+        drawCharts();
+    }
+
+    window.addEventListener('resize', () => {
+        chartCPU?.resize(); chartMem?.resize(); chartIO?.resize();
+    });
+
+    // ===================== 面板交互 =====================
+    const drawer = document.getElementById('paramDrawer');
+    document.getElementById('openDrawerBtn').addEventListener('click', () => drawer.classList.toggle('on'));
+    document.getElementById('closeDrawerBtn').addEventListener('click', () => drawer.classList.remove('on'));
+
+    document.getElementById('applyParamBtn').addEventListener('click', () => {
+        cloudState.overview.vmCount = parseInt(document.getElementById('vmCount').value) || 12;
+        cloudState.overview.uptimePct = parseFloat(document.getElementById('uptimePct').value) || 99.8;
+        cloudState.overview.flowGB = parseFloat(document.getElementById('flowGB').value) || 2.4;
+        cloudState.overview.warnCnt = parseInt(document.getElementById('warnCnt').value) || 3;
+        // 调整告警数量
+        syncAlertCount();
+        // 保存到本地存储
+        saveConfig({
+            vmCount: cloudState.overview.vmCount,
+            uptimePct: cloudState.overview.uptimePct,
+            warnCnt: cloudState.overview.warnCnt,
+            flowGB: cloudState.overview.flowGB
+        });
+        refreshKPIs();
+        renderEvents();
+        alert('配置已应用并保存！关闭页面或刷新后仍会保留。');
+    });
+
+    document.getElementById('resetParamBtn').addEventListener('click', () => {
+        clearConfig();
+        // 重新初始化数据，不使用保存的overview
+        initData(false);
+        document.getElementById('cpuJitter').value = 15;
+        refreshKPIs();
+        renderVMs();
+        renderEvents();
+        drawCharts();
+        alert('已恢复默认配置，并清除本地保存。');
+    });
+
+    // ===================== 启动 =====================
+    function boot() {
+        const saved = loadConfig();
+        if (saved) {
+            console.log('📂 检测到已保存配置，正在加载...', saved);
+            // 用保存的配置覆盖默认 overview，然后初始化其他数据
+            initData(false); // 先清一下
+            cloudState.overview = {
+                vmCount: saved.vmCount || 12,
+                uptimePct: saved.uptimePct || 99.8,
+                warnCnt: saved.warnCnt || 3,
+                flowGB: saved.flowGB || 2.4
+            };
+            // 重新补齐告警
+            syncAlertCount();
+            // 更新输入框
+            document.getElementById('vmCount').value = cloudState.overview.vmCount;
+            document.getElementById('uptimePct').value = cloudState.overview.uptimePct;
+            document.getElementById('warnCnt').value = cloudState.overview.warnCnt;
+            document.getElementById('flowGB').value = cloudState.overview.flowGB;
+        } else {
+            console.log('🆕 首次运行，使用默认配置');
+            initData(false);
+        }
+        document.getElementById('cpuJitter').value = 15;
+
+        updateClock();
+        refreshKPIs();
+        renderVMs();
+        renderEvents();
+        initCharts();
+
+        setInterval(updateClock, 1000);
+        setInterval(tickData, 5000);
+        setInterval(() => generateEvent(), 8000);
+    }
+
+    boot();
+</script>
+</body>
+</html>
